@@ -95,6 +95,13 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .filebtn{display:inline-flex; align-items:center; font-size:14px; padding:9px 14px; border-radius:8px; border:1px solid var(--accent); color:var(--accent); min-height:44px; cursor:pointer}
 .filebtn input{display:none}
 .note{color:var(--sub); font-size:13px; margin:8px 0 0}
+.cols{display:grid; grid-template-columns:repeat(3,1fr); gap:8px}
+pre{font:12px/1.4 ui-monospace,monospace; color:var(--sub); white-space:pre-wrap; overflow-wrap:anywhere; margin:10px 0}
+#cSum{font-weight:600; margin:10px 0 6px}
+#cMsg{color:var(--out); margin:8px 0}
+#cResult{color:var(--in); font-weight:600}
+li.err{display:block; color:var(--out); font-size:13px; overflow-wrap:anywhere}
+li.dup{opacity:.5}
 #msg{margin:0 0 16px; padding:10px 12px; border-left:3px solid var(--out); background:var(--surface); display:none}
 #msg.show{display:block} #msg.ok{border-left-color:var(--in)}
 </style>
@@ -105,6 +112,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   <nav>
     <button id="tabHome" type="button" aria-current="page">ホーム</button>
     <button id="tabEntries" type="button">収支</button>
+    <button id="tabImport" type="button">取込</button>
   </nav>
   <p id="msg" role="status"></p>
 
@@ -157,6 +165,34 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     <ul id="all"></ul>
     <p id="emptyAll" hidden>取引はまだありません。「＋ 登録」から追加できます。</p>
   </div>
+
+  <div id="importScreen" hidden>
+    <section>
+      <h2>銀行CSVの取込</h2>
+      <label class="fld">銀行の形式<select id="cFmt"></select></label>
+      <label class="fld">形式の名前<input id="cName" maxlength="30" placeholder="例：○○銀行"></label>
+      <div class="cols">
+        <label class="fld">ヘッダー行数<input id="cHead" type="number" min="0" value="1"></label>
+        <label class="fld">日付の列<input id="cDate" type="number" min="1" value="1"></label>
+        <label class="fld">摘要の列<input id="cDesc" type="number" min="0" value="2"></label>
+        <label class="fld">出金の列<input id="cOut" type="number" min="0" value="3"></label>
+        <label class="fld">入金の列<input id="cIn" type="number" min="0" value="4"></label>
+      </div>
+      <label class="fld">文字コード<select id="cEnc"><option value="auto">自動判定</option><option value="utf-8">UTF-8</option><option value="shift_jis">Shift_JIS</option></select></label>
+      <div class="row"><button id="cSaveFmt" type="button">この形式を保存</button><button id="cDelFmt" type="button" class="danger">形式を削除</button></div>
+      <p class="note">列は左から1、2、3…と数えます。使わない列は0にします。</p>
+    </section>
+    <section>
+      <label class="filebtn">CSVファイルを選ぶ<input id="cFile" type="file" accept=".csv,text/csv,text/plain"></label>
+      <p id="cMsg" role="status"></p>
+      <pre id="cRaw"></pre>
+      <p id="cSum"></p>
+      <ul id="cList"></ul>
+      <div class="row"><button id="cGo" type="button" disabled>新規分を取り込む</button></div>
+      <p id="cResult"></p>
+      <p class="note">取込先の口座の指定は、口座管理（STEP 6）で追加します。</p>
+    </section>
+  </div>
 </main>
 
 <dialog id="dlg">
@@ -194,22 +230,23 @@ const Store = (() => {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
       if (!('indexedDB' in window)) return rej(new Error('このブラウザでは保存機能（IndexedDB）を使えません'));
-      const r = indexedDB.open('kakeibo', 1);
+      const r = indexedDB.open('kakeibo', 2);
       r.onupgradeneeded = () => {
-        const s = r.result.createObjectStore('entries', { keyPath: 'id' });
-        s.createIndex('date', 'date');
+        const db = r.result;
+        if (!db.objectStoreNames.contains('entries')) db.createObjectStore('entries', { keyPath: 'id' }).createIndex('date', 'date');
+        if (!db.objectStoreNames.contains('formats')) db.createObjectStore('formats', { keyPath: 'id' });
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });
     return dbp;
   }
-  async function tx(mode, fn){
+  async function tx(mode, fn, store = 'entries'){
     const db = await open();
     return new Promise((res, rej) => {
-      const t = db.transaction('entries', mode);
+      const t = db.transaction(store, mode);
       let out;
-      const rq = fn(t.objectStore('entries'));
+      const rq = fn(t.objectStore(store));
       if (rq) rq.onsuccess = () => { out = rq.result; };
       t.oncomplete = () => res(out);          // 書き込み完了後に解決
       t.onerror = t.onabort = () => rej(t.error);
@@ -219,7 +256,10 @@ const Store = (() => {
     all: () => tx('readonly', s => s.getAll()),
     putMany: items => tx('readwrite', s => { items.forEach(i => s.put(i)); }),
     clear: () => tx('readwrite', s => s.clear()),
-    remove: id => tx('readwrite', s => { s.delete(id); })
+    remove: id => tx('readwrite', s => { s.delete(id); }),
+    formats: () => tx('readonly', s => s.getAll(), 'formats'),
+    putFormat: x => tx('readwrite', s => { s.put(x); }, 'formats'),
+    removeFormat: id => tx('readwrite', s => { s.delete(id); }, 'formats')
   };
 })();
 
@@ -411,14 +451,173 @@ $('fdel').addEventListener('click', async () => {
 });
 $('add').addEventListener('click', () => openForm());
 
+const SCREENS = ['home', 'entries', 'import'];
+const tabId = s => 'tab' + s[0].toUpperCase() + s.slice(1);
 function show(name){
-  $('homeScreen').hidden = name !== 'home';
-  $('entriesScreen').hidden = name !== 'entries';
-  $('tabHome').setAttribute('aria-current', name === 'home' ? 'page' : 'false');
-  $('tabEntries').setAttribute('aria-current', name === 'entries' ? 'page' : 'false');
+  for (const s of SCREENS) {
+    $(s + 'Screen').hidden = s !== name;
+    $(tabId(s)).setAttribute('aria-current', s === name ? 'page' : 'false');
+  }
 }
-$('tabHome').addEventListener('click', () => show('home'));
-$('tabEntries').addEventListener('click', () => show('entries'));
+for (const s of SCREENS) $(tabId(s)).addEventListener('click', () => show(s));
+
+/* ===== CSV取込 ===== */
+function parseCSV(text){
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cur); cur = ''; rows.push(row); row = [];
+    } else cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+function parseDate(s){
+  const t = s.normalize('NFKC').trim();
+  const m = t.match(/^(\d{4})[\/\-.年](\d{1,2})[\/\-.月](\d{1,2})日?/) || t.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3], dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? `${y}-${pad(mo)}-${pad(d)}` : null;
+}
+function parseYen(s){
+  const t = (s || '').normalize('NFKC').replace(/[¥￥,\s円]/g, '');
+  return t === '' ? 0 : /^\d{1,12}$/.test(t) ? +t : NaN;
+}
+function decode(buf, enc){
+  const dec = e => new TextDecoder(e, { fatal: true }).decode(buf).replace(/^\uFEFF/, '');
+  if (enc !== 'auto') return dec(enc);
+  try { return dec('utf-8'); } catch (_) { return dec('shift_jis'); }
+}
+function twoTap(b, fn){
+  const label = b.textContent; let t;
+  b.addEventListener('click', () => {
+    if (!b.dataset.armed) {
+      b.dataset.armed = '1'; b.textContent = '本当に削除（もう一度タップ）';
+      t = setTimeout(() => { delete b.dataset.armed; b.textContent = label; }, 4000); return;
+    }
+    clearTimeout(t); delete b.dataset.armed; b.textContent = label; fn();
+  });
+}
+
+let csvBuf = null, plan = null, formats = [];
+const cMsg = t => { $('cMsg').textContent = t; };
+const FIELDS = { head: 'cHead', date: 'cDate', desc: 'cDesc', out: 'cOut', in: 'cIn' };
+
+function readFormat(){
+  const f = {};
+  for (const [k, id] of Object.entries(FIELDS)) {
+    const v = $(id).value.trim();
+    if (!/^\d{1,2}$/.test(v)) { cMsg('列・行の数は0以上の整数で入力してください'); return null; }
+    f[k] = +v;
+  }
+  if (f.date < 1) { cMsg('日付の列は1以上にしてください'); return null; }
+  if (f.out < 1 && f.in < 1) { cMsg('出金か入金の列を指定してください'); return null; }
+  f.enc = $('cEnc').value;
+  return f;
+}
+
+async function buildPlan(){
+  if (!csvBuf) return;
+  cMsg(''); $('cResult').textContent = '';
+  const f = readFormat(); if (!f) return;
+  let rows;
+  try { rows = parseCSV(decode(csvBuf, f.enc)); }
+  catch (_) { return cMsg('文字コードを読み取れませんでした。文字コードを選び直してください'); }
+  $('cRaw').textContent = rows.slice(0, 4).map((r, i) => `${i + 1}: ${r.join(' | ')}`).join('\n');
+  const existing = new Set((await Store.all()).map(e => e.importHash).filter(Boolean));
+  const seen = new Map();
+  plan = rows.slice(f.head).map((r, idx) => {
+    const lineNo = idx + f.head + 1;
+    const date = parseDate(r[f.date - 1] || '');
+    const o = f.out ? parseYen(r[f.out - 1]) : 0, n = f.in ? parseYen(r[f.in - 1]) : 0;
+    const desc = (f.desc ? (r[f.desc - 1] || '') : '').normalize('NFKC').trim().slice(0, 100);
+    if (!date || Number.isNaN(o) || Number.isNaN(n) || (o > 0) === (n > 0)) return { status: 'error', lineNo, raw: r.join(',') };
+    const kind = n > 0 ? 'income' : 'expense', amount = n > 0 ? n : o;
+    const key = [date, kind, amount, desc].join('|');
+    const k = (seen.get(key) || 0) + 1; seen.set(key, k);   // 同日同額の別取引を区別
+    const hash = key + '|' + k;
+    return { status: existing.has(hash) ? 'dup' : 'new', entry: { date, amount, kind, category: '未分類', memo: desc, hash } };
+  });
+  renderPlan();
+}
+
+function renderPlan(){
+  const cnt = s => plan.filter(x => x.status === s).length;
+  $('cSum').textContent = `新規 ${cnt('new')}件 / 重複 ${cnt('dup')}件 / 読み取れない行 ${cnt('error')}件`;
+  const ul = $('cList'); ul.replaceChildren();
+  for (const x of plan.slice(0, 100)) {
+    let li;
+    if (x.entry) {
+      li = makeRow({ ...x.entry, category: x.entry.memo || '（摘要なし）', memo: x.status === 'dup' ? '重複（取り込みません）' : '新規' });
+      if (x.status === 'dup') li.classList.add('dup');
+    } else {
+      li = document.createElement('li'); li.className = 'err';
+      li.textContent = `${x.lineNo}行目：読み取れません　${x.raw}`;
+    }
+    ul.append(li);
+  }
+  if (plan.length > 100) { const li = document.createElement('li'); li.className = 'err'; li.textContent = '先頭100行のみ表示しています（取込は全行が対象です）'; ul.append(li); }
+  $('cGo').disabled = cnt('new') === 0;
+}
+
+$('cFile').addEventListener('change', async ev => {
+  const file = ev.target.files[0]; if (!file) return;
+  try { csvBuf = await file.arrayBuffer(); await buildPlan(); }
+  catch (err) { cMsg('ファイルを読み込めませんでした：' + err.message); }
+});
+for (const id of [...Object.values(FIELDS), 'cEnc']) $(id).addEventListener('change', () => buildPlan());
+
+$('cGo').addEventListener('click', async ev => {
+  const b = ev.currentTarget;
+  if (!plan || b.disabled) return;
+  b.disabled = true;                                   // 連打による二重取込を防ぐ
+  try {
+    const news = plan.filter(x => x.status === 'new');
+    await Store.putMany(news.map(x => ({ ...newEntry(x.entry), importHash: x.entry.hash })));
+    const dup = plan.filter(x => x.status === 'dup').length, err = plan.filter(x => x.status === 'error').length;
+    $('cResult').textContent = `取込結果：${news.length}件を登録、重複${dup}件を除外、読み取れない行${err}件`;
+    plan = null; csvBuf = null; $('cFile').value = '';
+    $('cList').replaceChildren(); $('cSum').textContent = ''; $('cRaw').textContent = '';
+    await renderHome();
+  } catch (err) { setMsg('取込できませんでした：' + err.message); b.disabled = false; }
+});
+
+/* 銀行ごとのCSV形式 */
+async function loadFormats(selectedId = ''){
+  try { formats = await Store.formats(); } catch (_) { formats = []; }
+  const sel = $('cFmt'); sel.replaceChildren();
+  const first = document.createElement('option'); first.value = ''; first.textContent = '新しい形式（未保存）'; sel.append(first);
+  for (const x of formats) { const o = document.createElement('option'); o.value = x.id; o.textContent = x.name; sel.append(o); }
+  sel.value = selectedId;
+}
+$('cFmt').addEventListener('change', () => {
+  const x = formats.find(v => v.id === $('cFmt').value);
+  if (x) {
+    $('cName').value = x.name; $('cEnc').value = x.enc || 'auto';
+    for (const [k, id] of Object.entries(FIELDS)) $(id).value = x[k];
+  } else $('cName').value = '';
+  buildPlan();
+});
+$('cSaveFmt').addEventListener('click', async () => {
+  const name = $('cName').value.trim(), f = readFormat();
+  if (!f) return;
+  if (!name) return cMsg('形式の名前を入力してください');
+  const id = $('cFmt').value || crypto.randomUUID();
+  try { await Store.putFormat({ id, name, ...f }); await loadFormats(id); cMsg(''); setMsg(`形式「${name}」を保存しました`, true); }
+  catch (err) { cMsg('保存できませんでした：' + err.message); }
+});
+twoTap($('cDelFmt'), async () => {
+  const id = $('cFmt').value; if (!id) return;
+  try { await Store.removeFormat(id); $('cName').value = ''; await loadFormats(); }
+  catch (err) { cMsg('削除できませんでした：' + err.message); }
+});
+loadFormats();
 
 /* ===== バックアップ・復元 ===== */
 const validEntry = e => e && typeof e.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) &&
