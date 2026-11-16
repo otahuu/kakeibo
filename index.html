@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>家計簿</title>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f3f5f2; --surface:#ffffff; --ink:#16211d; --sub:#5d6b65; --rule:#d3dbd6;
+  --in:#0f7b5f; --out:#b5413a; --accent:#2f4b7c;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#121815; --surface:#1b2420; --ink:#e8efeb; --sub:#9aa9a2; --rule:#2d3a34;
+    --in:#4cc7a2; --out:#ef8a82; --accent:#8fb0ea;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#121815; --surface:#1b2420; --ink:#e8efeb; --sub:#9aa9a2; --rule:#2d3a34;
+  --in:#4cc7a2; --out:#ef8a82; --accent:#8fb0ea;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font:16px/1.6 "Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",system-ui,sans-serif;
+  font-variant-numeric:tabular-nums;
+}
+main{max-width:560px; margin:0 auto; padding:20px 20px 48px}
+header{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:20px}
+h1{font-size:20px; margin:0; letter-spacing:.08em}
+h2{font-size:15px; margin:0 0 6px; color:var(--sub); font-weight:600}
+#monthLabel{color:var(--sub); font-size:14px}
+section{margin-bottom:28px}
+
+.hero{border-top:2px solid var(--ink); padding-top:10px}
+.big{font-size:44px; line-height:1.15; margin:2px 0 12px; font-weight:700; letter-spacing:-.01em; overflow-wrap:anywhere}
+.big.pos{color:var(--ink)} .big.neg{color:var(--out)}
+.ledger{margin:0}
+.ledger div{display:flex; justify-content:space-between; padding:8px 0; border-top:1px solid var(--rule)}
+.ledger div:last-child{border-bottom:1px solid var(--rule)}
+.ledger dt{color:var(--sub)} .ledger dd{margin:0; font-weight:600}
+#inc{color:var(--in)} #exp{color:var(--out)}
+
+.assets{display:grid; grid-template-columns:1fr 1fr; gap:0}
+.assets div{padding:8px 12px 8px 0; border-top:1px solid var(--rule)}
+.assets div+div{padding-left:12px; border-left:1px solid var(--rule)}
+.assets b{display:block; font-size:20px}
+.assets small{color:var(--sub)}
+
+ul{list-style:none; margin:0; padding:0}
+li{display:grid; grid-template-columns:3.2em 1fr auto; gap:8px; align-items:baseline; padding:10px 0; border-top:1px solid var(--rule)}
+li:last-child{border-bottom:1px solid var(--rule)}
+li .d{color:var(--sub); font-size:14px}
+li .c small{display:block; color:var(--sub); font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+li .a{font-weight:600} li .a.in{color:var(--in)} li .a.out{color:var(--out)}
+#empty{color:var(--sub); padding:18px 0; border-top:1px solid var(--rule); margin:0}
+
+details{border:1px dashed var(--rule); padding:10px 12px; color:var(--sub); font-size:14px}
+summary{cursor:pointer}
+.row{display:flex; gap:8px; margin-top:10px; flex-wrap:wrap}
+button{
+  font:inherit; font-size:14px; padding:9px 14px; border-radius:8px; cursor:pointer;
+  border:1px solid var(--accent); background:transparent; color:var(--accent); min-height:44px;
+}
+button.danger{border-color:var(--out); color:var(--out)}
+button[disabled]{opacity:.5}
+nav{display:flex; border-bottom:1px solid var(--rule); margin:-8px 0 20px}
+nav button{flex:1; border:0; border-bottom:2px solid transparent; border-radius:0; color:var(--sub); font-size:15px}
+nav button[aria-current="page"]{color:var(--ink); border-bottom-color:var(--ink); font-weight:600}
+.bar{display:flex; justify-content:space-between; align-items:center; margin-bottom:10px}
+.bar h2{margin:0}
+li.tap{cursor:pointer} li.tap:active{background:var(--surface)}
+li.mh{display:flex; justify-content:space-between; border-top:0; padding:16px 0 6px; font-weight:600; color:var(--sub); font-size:14px}
+#emptyAll{color:var(--sub); padding:18px 0; margin:0}
+dialog{width:min(92vw,520px); border:1px solid var(--rule); border-radius:12px; background:var(--surface); color:var(--ink); padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.seg{display:grid; grid-template-columns:1fr 1fr; border:1px solid var(--rule); border-radius:8px; overflow:hidden; margin-bottom:12px}
+.seg label{position:relative}
+.seg input{position:absolute; opacity:0}
+.seg span{display:block; text-align:center; padding:10px; cursor:pointer}
+.seg input:checked+span{background:var(--accent); color:var(--surface)}
+.seg input:focus-visible+span{outline:2px solid var(--accent); outline-offset:-2px}
+.fld{display:block; margin-bottom:12px; color:var(--sub); font-size:14px}
+.fld input,.fld select{display:block; width:100%; margin-top:4px; padding:10px; font:inherit; font-size:16px; color:var(--ink); background:var(--bg); border:1px solid var(--rule); border-radius:8px; min-height:44px}
+#fmsg{color:var(--out); min-height:1.4em; margin:0 0 8px; font-size:14px}
+#fdel{margin-top:14px; width:100%}
+#bkArea{width:100%; margin-top:10px; padding:10px; font:13px/1.4 ui-monospace,monospace; color:var(--ink); background:var(--surface); border:1px solid var(--rule); border-radius:8px}
+.filebtn{display:inline-flex; align-items:center; font-size:14px; padding:9px 14px; border-radius:8px; border:1px solid var(--accent); color:var(--accent); min-height:44px; cursor:pointer}
+.filebtn input{display:none}
+.note{color:var(--sub); font-size:13px; margin:8px 0 0}
+#msg{margin:0 0 16px; padding:10px 12px; border-left:3px solid var(--out); background:var(--surface); display:none}
+#msg.show{display:block} #msg.ok{border-left-color:var(--in)}
+</style>
+</head>
+<body>
+<main>
+  <header><h1>家計簿</h1><span id="monthLabel"></span></header>
+  <nav>
+    <button id="tabHome" type="button" aria-current="page">ホーム</button>
+    <button id="tabEntries" type="button">収支</button>
+  </nav>
+  <p id="msg" role="status"></p>
+
+  <div id="homeScreen">
+  <section class="hero">
+    <h2>今月の収支</h2>
+    <p id="balance" class="big pos">¥0</p>
+    <dl class="ledger">
+      <div><dt>収入</dt><dd id="inc">¥0</dd></div>
+      <div><dt>支出</dt><dd id="exp">¥0</dd></div>
+    </dl>
+  </section>
+
+  <section>
+    <div class="assets">
+      <div><h2>総資産</h2><b>—</b><small>口座管理で表示（STEP 6）</small></div>
+      <div><h2>借入残高</h2><b>—</b><small>借入管理で表示（STEP 7）</small></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>最近の取引</h2>
+    <ul id="recent"></ul>
+    <p id="empty" hidden>取引はまだありません。「収支」タブから登録できます。</p>
+  </section>
+
+  <section id="backup">
+    <h2>バックアップ・復元</h2>
+    <div class="row">
+      <button id="bkSave" type="button">ファイルに書き出す</button>
+      <button id="bkText" type="button">テキストで表示</button>
+      <label class="filebtn">ファイルから復元<input id="bkFile" type="file" accept=".json,application/json"></label>
+    </div>
+    <textarea id="bkArea" rows="4" spellcheck="false" placeholder="テキストの表示・貼り付け用"></textarea>
+    <div class="row"><button id="bkRestore" type="button">貼り付けたテキストから復元</button></div>
+    <p class="note">復元は、同じIDの取引を上書きし、ほかの取引は消しません。アプリの更新後にデータが消える場合があるため、更新の前に書き出してください。</p>
+  </section>
+
+  <details>
+    <summary>開発用：動作確認</summary>
+    <div class="row">
+      <button id="addSample">サンプルを追加</button>
+      <button id="clearAll" class="danger">全データを削除</button>
+    </div>
+  </details>
+  </div>
+
+  <div id="entriesScreen" hidden>
+    <div class="bar"><h2>すべての取引</h2><button id="add" type="button">＋ 登録</button></div>
+    <ul id="all"></ul>
+    <p id="emptyAll" hidden>取引はまだありません。「＋ 登録」から追加できます。</p>
+  </div>
+</main>
+
+<dialog id="dlg">
+  <form id="f" novalidate>
+    <h2 id="ftitle">収支を登録</h2>
+    <div class="seg" role="radiogroup" aria-label="種類">
+      <label><input type="radio" name="kind" value="expense" checked><span>支出</span></label>
+      <label><input type="radio" name="kind" value="income"><span>収入</span></label>
+    </div>
+    <label class="fld">日付<input id="fdate" type="date" required></label>
+    <label class="fld">金額（円）<input id="famt" inputmode="numeric" autocomplete="off" placeholder="0"></label>
+    <label class="fld">カテゴリー<select id="fcat"></select></label>
+    <label class="fld">メモ（任意）<input id="fmemo" maxlength="100" autocomplete="off"></label>
+    <p id="fmsg" role="alert"></p>
+    <div class="row">
+      <button id="fsave" type="submit">保存</button>
+      <button id="fcancel" type="button">キャンセル</button>
+    </div>
+    <button id="fdel" type="button" class="danger" hidden>この取引を削除</button>
+  </form>
+</dialog>
+
+<script>
+'use strict';
+
+/* ===== Money: 金額は円単位の整数で扱う ===== */
+const Money = {
+  yen(n){ return (n < 0 ? '−' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP'); }
+};
+
+/* ===== Store: ブラウザ内DB(IndexedDB)。端末外へは送信しない ===== */
+const Store = (() => {
+  let dbp;
+  function open(){
+    if (dbp) return dbp;
+    dbp = new Promise((res, rej) => {
+      if (!('indexedDB' in window)) return rej(new Error('このブラウザでは保存機能（IndexedDB）を使えません'));
+      const r = indexedDB.open('kakeibo', 1);
+      r.onupgradeneeded = () => {
+        const s = r.result.createObjectStore('entries', { keyPath: 'id' });
+        s.createIndex('date', 'date');
+      };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    return dbp;
+  }
+  async function tx(mode, fn){
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('entries', mode);
+      let out;
+      const rq = fn(t.objectStore('entries'));
+      if (rq) rq.onsuccess = () => { out = rq.result; };
+      t.oncomplete = () => res(out);          // 書き込み完了後に解決
+      t.onerror = t.onabort = () => rej(t.error);
+    });
+  }
+  return {
+    all: () => tx('readonly', s => s.getAll()),
+    putMany: items => tx('readwrite', s => { items.forEach(i => s.put(i)); }),
+    clear: () => tx('readwrite', s => s.clear()),
+    remove: id => tx('readwrite', s => { s.delete(id); })
+  };
+})();
+
+/* ===== Domain: 収支データと集計 ===== */
+const pad = n => String(n).padStart(2, '0');
+const localDate = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+// date は 'YYYY-MM-DD' の文字列（タイムゾーンのずれを避ける）。accountId / importHash は将来用。
+function newEntry({ date, amount, kind, category, memo = '' }){
+  return { id: crypto.randomUUID(), date, amount, kind, category, memo,
+           createdAt: new Date().toISOString(), accountId: null, importHash: null };
+}
+function monthlySummary(entries, ym){
+  let income = 0, expense = 0;
+  for (const e of entries) {
+    if (e.date.slice(0, 7) !== ym) continue;
+    if (e.kind === 'income') income += e.amount; else expense += e.amount;
+  }
+  return { income, expense, balance: income - expense };
+}
+const byRecent = (a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt);
+
+/* ===== UI: ホーム画面 ===== */
+const $ = id => document.getElementById(id);
+function setMsg(text, ok){
+  const m = $('msg');
+  m.textContent = text || '';
+  m.className = text ? (ok ? 'show ok' : 'show') : '';
+  if (text) m.scrollIntoView({ block: 'nearest' });
+}
+
+function makeRow(e, onTap){
+  const li = document.createElement('li');
+  const d = document.createElement('span'); d.className = 'd';
+  d.textContent = `${+e.date.slice(5, 7)}/${+e.date.slice(8, 10)}`;
+  const c = document.createElement('span'); c.className = 'c';
+  c.textContent = e.category;
+  if (e.memo) { const m = document.createElement('small'); m.textContent = e.memo; c.append(m); }
+  const a = document.createElement('span');
+  a.className = 'a ' + (e.kind === 'income' ? 'in' : 'out');
+  a.textContent = Money.yen(e.kind === 'income' ? e.amount : -e.amount);
+  li.append(d, c, a);
+  if (onTap) {
+    li.className = 'tap'; li.tabIndex = 0; li.setAttribute('role', 'button');
+    li.addEventListener('click', onTap);
+    li.addEventListener('keydown', ev => { if (ev.key === 'Enter') onTap(); });
+  }
+  return li;
+}
+
+function renderEntries(entries){
+  const ul = $('all'); ul.replaceChildren();
+  const sorted = [...entries].sort(byRecent);
+  $('emptyAll').hidden = sorted.length > 0;
+  let ym = '';
+  for (const e of sorted) {
+    if (e.date.slice(0, 7) !== ym) {
+      ym = e.date.slice(0, 7);
+      const h = document.createElement('li'); h.className = 'mh';
+      h.textContent = `${+ym.slice(0, 4)}年${+ym.slice(5)}月`;
+      const b = document.createElement('span');
+      b.textContent = '収支 ' + Money.yen(monthlySummary(entries, ym).balance);
+      h.append(b); ul.append(h);
+    }
+    ul.append(makeRow(e, () => openForm(e)));
+  }
+}
+
+async function renderHome(){
+  try {
+    const entries = await Store.all();
+    const now = new Date();
+    const s = monthlySummary(entries, localDate(now).slice(0, 7));
+    $('monthLabel').textContent = `${now.getFullYear()}年${now.getMonth() + 1}月`;
+    $('balance').textContent = Money.yen(s.balance);
+    $('balance').className = 'big ' + (s.balance < 0 ? 'neg' : 'pos');
+    $('inc').textContent = Money.yen(s.income);
+    $('exp').textContent = Money.yen(s.expense);
+
+    const recent = [...entries].sort(byRecent).slice(0, 10);
+    const ul = $('recent');
+    ul.replaceChildren();
+    $('empty').hidden = recent.length > 0;
+    for (const e of recent) ul.append(makeRow(e, () => openForm(e)));
+    renderEntries(entries);
+  } catch (err) {
+    setMsg('データを読み込めませんでした：' + err.message);
+  }
+}
+
+/* ===== 開発用ボタン（STEP 1の確認用。収支登録画面ができたら削除） ===== */
+$('addSample').addEventListener('click', async ev => {
+  const b = ev.currentTarget; b.disabled = true;   // 連打による二重追加を防ぐ
+  try {
+    const t = new Date(), day = n => { const d = new Date(t); d.setDate(t.getDate() - n); return localDate(d); };
+    await Store.putMany([
+      newEntry({ date: day(0), amount: 250000, kind: 'income',  category: '給与', memo: '10月分' }),
+      newEntry({ date: day(1), amount: 78000,  kind: 'expense', category: '住居', memo: '家賃' }),
+      newEntry({ date: day(2), amount: 1280,   kind: 'expense', category: '食費', memo: 'ランチ' })
+    ]);
+    setMsg('サンプルを3件追加しました', true);
+    await renderHome();
+  } catch (err) { setMsg('保存できませんでした：' + err.message); }
+  b.disabled = false;
+});
+
+let armTimer;
+$('clearAll').addEventListener('click', async ev => {
+  const b = ev.currentTarget;
+  if (!b.dataset.armed) {                          // 1回目：確認表示
+    b.dataset.armed = '1'; b.textContent = '本当に削除する（もう一度タップ）';
+    armTimer = setTimeout(() => { delete b.dataset.armed; b.textContent = '全データを削除'; }, 4000);
+    return;
+  }
+  clearTimeout(armTimer); delete b.dataset.armed; b.textContent = '全データを削除';
+  try { await Store.clear(); setMsg('全データを削除しました', true); await renderHome(); }
+  catch (err) { setMsg('削除できませんでした：' + err.message); }
+});
+
+/* ===== 収支の登録・編集・削除 ===== */
+const CATS = {
+  expense: ['食費', '日用品', '交通費', '住居', '水道光熱費', '通信費', '医療', '娯楽', '衣服・美容', '教育', '借入返済', 'その他'],
+  income: ['給与', '賞与', '副収入', 'その他']
+};
+const dlg = $('dlg'), f = $('f');
+let editing = null, saving = false, delTimer;
+
+const fmsg = t => { $('fmsg').textContent = t; };
+function fillCats(kind, selected){
+  const sel = $('fcat'); sel.replaceChildren();
+  const list = [...CATS[kind]];
+  if (selected && !list.includes(selected)) list.push(selected);   // 取込などで増えた分類も保持
+  for (const c of list) { const o = document.createElement('option'); o.value = o.textContent = c; sel.append(o); }
+  sel.value = selected && list.includes(selected) ? selected : list[0];
+}
+// 全角数字・カンマ・空白を許容し、1円以上12桁以内の整数のみ受け付ける
+function parseAmount(t){
+  const s = t.normalize('NFKC').replace(/[,\s]/g, '');
+  return /^\d{1,12}$/.test(s) && +s > 0 ? +s : null;
+}
+function resetDel(){
+  clearTimeout(delTimer);
+  const b = $('fdel'); delete b.dataset.armed; b.textContent = 'この取引を削除';
+}
+function openForm(entry){
+  editing = entry || null; saving = false;
+  const kind = entry ? entry.kind : 'expense';
+  f.elements.kind.value = kind;
+  $('ftitle').textContent = entry ? '収支を編集' : '収支を登録';
+  $('fdate').value = entry ? entry.date : localDate();
+  $('famt').value = entry ? String(entry.amount) : '';
+  fillCats(kind, entry && entry.category);
+  $('fmemo').value = entry ? entry.memo : '';
+  $('fdel').hidden = !entry; resetDel(); fmsg('');
+  $('fsave').disabled = false;
+  dlg.showModal();
+}
+f.addEventListener('change', ev => {
+  if (ev.target.name === 'kind') fillCats(ev.target.value, $('fcat').value);
+});
+f.addEventListener('submit', async ev => {
+  ev.preventDefault();
+  if (saving) return;                                  // 連打による二重登録を防ぐ
+  const date = $('fdate').value, amount = parseAmount($('famt').value);
+  if (!date) return fmsg('日付を入力してください');
+  if (amount === null) return fmsg('金額は1円以上の整数で入力してください（12桁まで）');
+  saving = true; $('fsave').disabled = true;
+  try {
+    const data = { date, amount, kind: f.elements.kind.value, category: $('fcat').value, memo: $('fmemo').value.trim() };
+    await Store.putMany([editing ? { ...editing, ...data } : newEntry(data)]);
+    dlg.close(); setMsg('');
+    await renderHome();
+  } catch (err) {
+    fmsg('保存できませんでした：' + err.message);
+    saving = false; $('fsave').disabled = false;
+  }
+});
+$('fcancel').addEventListener('click', () => dlg.close());
+$('fdel').addEventListener('click', async () => {
+  const b = $('fdel');
+  if (!b.dataset.armed) {                              // 1回目：確認表示
+    b.dataset.armed = '1'; b.textContent = '本当に削除する（もう一度タップ）';
+    delTimer = setTimeout(resetDel, 4000);
+    return;
+  }
+  resetDel();
+  try { await Store.remove(editing.id); dlg.close(); await renderHome(); }
+  catch (err) { fmsg('削除できませんでした：' + err.message); }
+});
+$('add').addEventListener('click', () => openForm());
+
+function show(name){
+  $('homeScreen').hidden = name !== 'home';
+  $('entriesScreen').hidden = name !== 'entries';
+  $('tabHome').setAttribute('aria-current', name === 'home' ? 'page' : 'false');
+  $('tabEntries').setAttribute('aria-current', name === 'entries' ? 'page' : 'false');
+}
+$('tabHome').addEventListener('click', () => show('home'));
+$('tabEntries').addEventListener('click', () => show('entries'));
+
+/* ===== バックアップ・復元 ===== */
+const validEntry = e => e && typeof e.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date) &&
+  Number.isInteger(e.amount) && e.amount > 0 && e.amount <= 999999999999 &&
+  (e.kind === 'income' || e.kind === 'expense') && typeof e.category === 'string';
+
+async function makeBackup(){
+  const entries = await Store.all();
+  return JSON.stringify({ app: 'kakeibo', version: 1, exportedAt: new Date().toISOString(), entries });
+}
+
+async function restoreFrom(text){
+  let obj;
+  try { obj = JSON.parse(text); } catch (_) { return setMsg('読み込めませんでした：バックアップの形式が正しくありません'); }
+  if (!obj || obj.app !== 'kakeibo' || !Array.isArray(obj.entries)) return setMsg('読み込めませんでした：このアプリのバックアップではありません');
+  const ok = obj.entries.filter(validEntry).map(e => ({
+    id: e.id, date: e.date, amount: e.amount, kind: e.kind, category: e.category,
+    memo: typeof e.memo === 'string' ? e.memo : '',
+    createdAt: typeof e.createdAt === 'string' ? e.createdAt : new Date().toISOString(),
+    accountId: e.accountId ?? null, importHash: e.importHash ?? null
+  }));
+  try {
+    await Store.putMany(ok);
+    const skipped = obj.entries.length - ok.length;
+    setMsg(`${ok.length}件を復元しました` + (skipped ? `（形式が不正な${skipped}件はスキップ）` : ''), true);
+    await renderHome();
+  } catch (err) { setMsg('復元できませんでした：' + err.message); }
+}
+
+$('bkSave').addEventListener('click', async () => {
+  try {
+    const text = await makeBackup();
+    const dl = window.claude ? await window.claude.use('downloads') : null;
+    if (!dl) {
+      $('bkArea').value = text;
+      return setMsg('ファイル保存を使えないため、下の欄にテキストを表示しました。全体をコピーして保存してください');
+    }
+    await dl.save({ filename: `kakeibo-backup-${localDate().replace(/-/g, '')}.json`, data: text });
+    setMsg('バックアップを書き出しました', true);
+  } catch (err) {
+    if (!err || err.code !== 'declined') setMsg('書き出せませんでした：' + ((err && err.message) || err));
+  }
+});
+$('bkText').addEventListener('click', async () => {
+  try {
+    $('bkArea').value = await makeBackup(); $('bkArea').select();
+    setMsg('テキストを表示しました。全体をコピーして保存してください', true);
+  } catch (err) { setMsg('書き出せませんでした：' + err.message); }
+});
+$('bkRestore').addEventListener('click', () => restoreFrom($('bkArea').value));
+$('bkFile').addEventListener('change', async ev => {
+  const file = ev.target.files[0]; ev.target.value = '';
+  if (!file) return;
+  try { await restoreFrom(await file.text()); } catch (err) { setMsg('ファイルを読み込めませんでした：' + err.message); }
+});
+
+/* ===== 起動 ===== */
+try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (_) {}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) renderHome(); });
+renderHome();
+</script>
+</body>
+</html>
